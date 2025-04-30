@@ -1,4 +1,4 @@
-"""Remote control support for Apple TV."""
+"""Remote control support for Apple TV with enhanced swipe functionality."""
 
 import asyncio
 from collections.abc import Iterable
@@ -7,6 +7,8 @@ from typing import Any
 
 from pyatv.const import InputAction
 
+from homeassistant.components.apple_tv import DOMAIN as APPLE_TV_DOMAIN
+from homeassistant.components.apple_tv.entity import AppleTVEntity as OriginalAppleTVEntity
 from homeassistant.components.remote import (
     ATTR_DELAY_SECS,
     ATTR_HOLD_SECS,
@@ -19,8 +21,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AppleTvConfigEntry
-from .entity import AppleTVEntity
+from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,19 +43,41 @@ SWIPE_DIRECTIONS = ["left", "right", "up", "down"]
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: AppleTvConfigEntry,
+    config_entry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Load Apple TV remote based on a config entry."""
-    name: str = config_entry.data[CONF_NAME]
-    # apple_tv config entries always have a unique id
-    assert config_entry.unique_id is not None
-    manager = config_entry.runtime_data
-    async_add_entities([AppleTVRemote(name, config_entry.unique_id, manager)])
+    name = config_entry.data.get(CONF_NAME)
+    if not name:
+        _LOGGER.error("Missing name in config entry")
+        return
+        
+    # Find Apple TV devices from the standard component
+    apple_tv_devices = []
+    if APPLE_TV_DOMAIN in hass.data:
+        for atv_config_entry in hass.config_entries.async_entries(APPLE_TV_DOMAIN):
+            if atv_config_entry.entry_id in hass.data[APPLE_TV_DOMAIN]:
+                apple_tv_devices.append((
+                    atv_config_entry.data.get(CONF_NAME, ""),
+                    atv_config_entry.unique_id,
+                    hass.data[APPLE_TV_DOMAIN][atv_config_entry.entry_id]
+                ))
+    
+    if not apple_tv_devices:
+        _LOGGER.error("No Apple TV devices found. Make sure standard Apple TV component is configured.")
+        return
+        
+    entities = []
+    for atv_name, unique_id, manager in apple_tv_devices:
+        # Match with the name in our config if specified, otherwise add all
+        if not name or name == atv_name:
+            entities.append(AppleTVRemoteWithSwipe(atv_name, unique_id, manager))
+    
+    async_add_entities(entities)
 
 
-class AppleTVRemote(AppleTVEntity, RemoteEntity):
-    """Device that sends commands to an Apple TV."""
+class AppleTVRemoteWithSwipe(OriginalAppleTVEntity, RemoteEntity):
+    """Device that sends commands to an Apple TV with swipe support."""
 
     @property
     def is_on(self) -> bool:
@@ -71,7 +94,7 @@ class AppleTVRemote(AppleTVEntity, RemoteEntity):
 
     async def async_send_command(self, command: Iterable[str], **kwargs: Any) -> None:
         """Send a command to one device."""
-        num_repeats = kwargs[ATTR_NUM_REPEATS]
+        num_repeats = kwargs.get(ATTR_NUM_REPEATS, 1)
         delay = kwargs.get(ATTR_DELAY_SECS, DEFAULT_DELAY_SECS)
         hold_secs = kwargs.get(ATTR_HOLD_SECS, DEFAULT_HOLD_SECS)
 
@@ -119,7 +142,7 @@ class AppleTVRemote(AppleTVEntity, RemoteEntity):
                 if not attr_value:
                     attr_value = getattr(self.atv.remote_control, single_command, None)
                 if not attr_value:
-                    raise ValueError("Command not found. Exiting sequence")
+                    raise ValueError(f"Command {single_command} not found. Exiting sequence")
 
                 _LOGGER.debug("Sending command %s", single_command)
 
