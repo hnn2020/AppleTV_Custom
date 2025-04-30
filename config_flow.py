@@ -19,23 +19,20 @@ class AppleTVCustomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
+        # Check if we already have an entry
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+            
         errors = {}
         
         if user_input is not None:
-            # Use the name as the unique ID
-            name = user_input[CONF_NAME]
-            await self.async_set_unique_id(name)
-            self._abort_if_unique_id_configured()
-
             return self.async_create_entry(
-                title=name,
-                data=user_input,
+                title="Apple TV Custom Remotes",
+                data={},
             )
 
-        # Use vol directly to avoid any potential issues
-        schema = vol.Schema({
-            vol.Required(CONF_NAME): str,
-        })
+        # Simple form with just a submit button
+        schema = vol.Schema({})
 
         return self.async_show_form(
             step_id="user",

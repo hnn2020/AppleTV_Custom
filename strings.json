@@ -4,10 +4,7 @@
     "step": {
       "user": {
         "title": "Apple TV Custom Setup",
-        "description": "Set up the Apple TV Custom component with swipe functionality",
-        "data": {
-          "name": "Name"
-        }
+        "description": "Enable swipe functionality for all your Apple TVs. Make sure you have already set up the standard Apple TV integration first."
       },
       "restore_device": {
         "title": "Device reconfiguration",
@@ -51,8 +48,8 @@
     "abort": {
       "ipv6_not_supported": "IPv6 is not supported.",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
-      "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
-      "already_configured": "Device is already configured",
+      "no_devices_found": "No Apple TV devices found. Please set up the standard Apple TV integration first.",
+      "already_configured": "This integration is already configured",
       "device_did_not_pair": "No attempt to finish pairing process was made from the device.",
       "backoff": "Device does not accept pairing requests at this time (you might have entered an invalid PIN code too many times), try again later.",
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",

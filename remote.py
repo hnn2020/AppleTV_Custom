@@ -47,31 +47,35 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Load Apple TV remote based on a config entry."""
-    name = config_entry.data.get(CONF_NAME)
-    if not name:
-        _LOGGER.error("Missing name in config entry")
-        return
-        
-    # Find Apple TV devices from the standard component
-    apple_tv_devices = []
-    if APPLE_TV_DOMAIN in hass.data:
-        for atv_config_entry in hass.config_entries.async_entries(APPLE_TV_DOMAIN):
-            if atv_config_entry.entry_id in hass.data[APPLE_TV_DOMAIN]:
-                apple_tv_devices.append((
-                    atv_config_entry.data.get(CONF_NAME, ""),
-                    atv_config_entry.unique_id,
-                    hass.data[APPLE_TV_DOMAIN][atv_config_entry.entry_id]
-                ))
+    # Look for Apple TV devices
+    _LOGGER.info("Setting up Apple TV Custom remote")
     
-    if not apple_tv_devices:
-        _LOGGER.error("No Apple TV devices found. Make sure standard Apple TV component is configured.")
+    if APPLE_TV_DOMAIN not in hass.data:
+        _LOGGER.error("Apple TV domain not found in Home Assistant data")
         return
-        
+    
+    # Loop through Apple TV entries in Home Assistant
+    apple_tv_entries = hass.config_entries.async_entries(APPLE_TV_DOMAIN)
+    _LOGGER.info("Found %d Apple TV configuration entries", len(apple_tv_entries))
+    
     entities = []
-    for atv_name, unique_id, manager in apple_tv_devices:
-        # Match with the name in our config if specified, otherwise add all
-        if not name or name == atv_name:
-            entities.append(AppleTVRemoteWithSwipe(atv_name, unique_id, manager))
+    
+    # Find and add all Apple TV devices with SwipeRemote functionality
+    for atv_entry in apple_tv_entries:
+        entry_id = atv_entry.entry_id
+        if entry_id not in hass.data[APPLE_TV_DOMAIN]:
+            _LOGGER.warning("Entry %s does not have manager data in Apple TV domain", entry_id)
+            continue
+            
+        # Get the device manager from the Apple TV integration
+        manager = hass.data[APPLE_TV_DOMAIN][entry_id]
+        device_name = atv_entry.data.get(CONF_NAME, "Unknown")
+        
+        _LOGGER.info("Adding Apple TV Custom Remote for %s", device_name)
+        entities.append(AppleTVRemoteWithSwipe(device_name, atv_entry.unique_id, manager))
+    
+    if not entities:
+        _LOGGER.warning("No Apple TV devices found. Make sure you have set up Apple TV integration.")
     
     async_add_entities(entities)
 
@@ -79,6 +83,14 @@ async def async_setup_entry(
 class AppleTVRemoteWithSwipe(OriginalAppleTVEntity, RemoteEntity):
     """Device that sends commands to an Apple TV with swipe support."""
 
+    _attr_has_entity_name = True
+    
+    def __init__(self, name, identifier, manager):
+        """Initialize the Apple TV remote with swipe."""
+        super().__init__(name, identifier, manager)
+        self._attr_name = f"{name} with Swipe"
+        self._attr_unique_id = f"{identifier}_swipe_remote"
+    
     @property
     def is_on(self) -> bool:
         """Return true if device is on."""
@@ -124,7 +136,7 @@ class AppleTVRemoteWithSwipe(OriginalAppleTVEntity, RemoteEntity):
                     elif direction == "down":
                         dy = delta
                     
-                    _LOGGER.debug("Sending swipe %s (dx=%f, dy=%f)", direction, dx, dy)
+                    _LOGGER.info("Sending swipe %s (dx=%f, dy=%f)", direction, dx, dy)
                     try:
                         await self.atv.remote_control.swipe(dx, dy)
                     except Exception as ex:

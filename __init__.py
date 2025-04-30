@@ -23,21 +23,36 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Apple TV Custom component from YAML."""
     hass.data.setdefault(DOMAIN, {})
+    # Log discovered Apple TV devices for debugging
+    if APPLE_TV_DOMAIN in hass.data:
+        _LOGGER.info("Found standard Apple TV component with data: %s", 
+                    {key: "..." for key in hass.data[APPLE_TV_DOMAIN].keys()})
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Apple TV Custom from a config entry."""
-    # Make sure the standard Apple TV component is set up first
-    # so we can build on top of its functionality
-    if not hass.data.get(APPLE_TV_DOMAIN):
-        _LOGGER.warning("Standard Apple TV component not set up. Make sure it's configured correctly.")
-        return False
-        
+    # Store our data
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
     
-    # Set up platform(s)
+    # Check if standard Apple TV component is loaded
+    has_apple_tv = False
+    if APPLE_TV_DOMAIN in hass.data:
+        # Check if we have any entries in the Apple TV domain
+        has_entries = bool(hass.config_entries.async_entries(APPLE_TV_DOMAIN))
+        if has_entries:
+            has_apple_tv = True
+            _LOGGER.info("Found Apple TV entries: %s", 
+                        [e.title for e in hass.config_entries.async_entries(APPLE_TV_DOMAIN)])
+    
+    if not has_apple_tv:
+        _LOGGER.warning("Standard Apple TV component not set up or no devices found. "
+                       "Please set up Apple TV devices first.")
+        _LOGGER.debug("Available domains in hass.data: %s", list(hass.data.keys()))
+        # Continue anyway since the user might add devices later
+    
+    # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(update_listener))
     
