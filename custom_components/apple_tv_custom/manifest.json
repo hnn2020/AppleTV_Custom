@@ -1,0 +1,11 @@
+{
+  "domain": "apple_tv_custom",
+  "name": "Apple TV Custom",
+  "documentation": "https://github.com/hananele/apple_tv_custom",
+  "dependencies": ["apple_tv"],
+  "codeowners": ["@hananele"],
+  "requirements": [],
+  "iot_class": "local_push",
+  "version": "0.2.0",
+  "config_flow": false
+} 

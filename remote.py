@@ -19,6 +19,7 @@ from homeassistant.components.remote import (
 )
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import DOMAIN
@@ -50,73 +51,107 @@ async def async_setup_entry(
     # Look for Apple TV devices
     _LOGGER.info("Setting up Apple TV Custom remote")
     
-    if APPLE_TV_DOMAIN not in hass.data:
-        _LOGGER.error("Apple TV domain not found in Home Assistant data")
+    # Check if device registry has Apple TV devices
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+    
+    # Find Apple TV devices in the device registry
+    apple_tv_devices = []
+    
+    for device_id, device in device_reg.devices.items():
+        # Check if any of the device's identifiers belong to the Apple TV domain
+        for identifier in device.identifiers:
+            if identifier[0] == APPLE_TV_DOMAIN:
+                _LOGGER.info(f"Found Apple TV device: {device.name} with id {device_id}")
+                apple_tv_devices.append((device_id, device.name))
+                break
+    
+    if not apple_tv_devices:
+        _LOGGER.warning("No Apple TV devices found in device registry")
         return
-    
-    # Loop through Apple TV entries in Home Assistant
-    apple_tv_entries = hass.config_entries.async_entries(APPLE_TV_DOMAIN)
-    _LOGGER.info("Found %d Apple TV configuration entries", len(apple_tv_entries))
-    
+        
     entities = []
     
-    # Find and add all Apple TV devices with SwipeRemote functionality
-    for atv_entry in apple_tv_entries:
-        entry_id = atv_entry.entry_id
-        if entry_id not in hass.data[APPLE_TV_DOMAIN]:
-            _LOGGER.warning("Entry %s does not have manager data in Apple TV domain", entry_id)
+    # Get all media_player entities for each Apple TV device
+    for device_id, device_name in apple_tv_devices:
+        # Search for the original Apple TV entities
+        remote_entities = []
+        
+        # Find existing remotes for this device
+        for entity in entity_reg.entities.values():
+            if (entity.domain == "remote" and 
+                entity.platform == APPLE_TV_DOMAIN and
+                entity.device_id == device_id):
+                remote_entities.append(entity)
+                
+        if not remote_entities:
+            _LOGGER.warning(f"No remote entities found for Apple TV device: {device_name}")
             continue
             
-        # Get the device manager from the Apple TV integration
-        manager = hass.data[APPLE_TV_DOMAIN][entry_id]
-        device_name = atv_entry.data.get(CONF_NAME, "Unknown")
-        
-        _LOGGER.info("Adding Apple TV Custom Remote for %s", device_name)
-        entities.append(AppleTVRemoteWithSwipe(device_name, atv_entry.unique_id, manager))
-    
+        # Create custom remote for each found entity
+        for remote_entity in remote_entities:
+            entity_id = remote_entity.entity_id
+            unique_id = remote_entity.unique_id
+            
+            # Create our entity
+            _LOGGER.info(f"Adding swipe remote for {device_name} based on {entity_id}")
+            entities.append(
+                AppleTVRemoteWithSwipe(
+                    device_name,
+                    device_id,  # Use device ID for device info
+                    unique_id,  # Use original entity ID for unique ID
+                    entity_id   # Store original entity ID for reference
+                )
+            )
+            
     if not entities:
-        _LOGGER.warning("No Apple TV devices found. Make sure you have set up Apple TV integration.")
-    
+        _LOGGER.warning("No Apple TV remotes were created. Please set up the standard Apple TV integration first.")
+        return
+        
     async_add_entities(entities)
 
 
-class AppleTVRemoteWithSwipe(OriginalAppleTVEntity, RemoteEntity):
+class AppleTVRemoteWithSwipe(RemoteEntity):
     """Device that sends commands to an Apple TV with swipe support."""
 
     _attr_has_entity_name = True
     
-    def __init__(self, name, identifier, manager):
+    def __init__(self, name, device_id, unique_id, source_entity_id):
         """Initialize the Apple TV remote with swipe."""
-        super().__init__(name, identifier, manager)
         self._attr_name = f"{name} with Swipe"
-        self._attr_unique_id = f"{identifier}_swipe_remote"
+        self._attr_unique_id = f"{unique_id}_swipe"
+        self._device_id = device_id
+        self._source_entity_id = source_entity_id
+        self._source_entity = None
+        self._available = True
+        
+    @property
+    def device_info(self):
+        """Return device info for this device."""
+        return {"identifiers": {(DOMAIN, self._device_id)}}
     
+    async def async_added_to_hass(self):
+        """Handle being added to Home Assistant."""
+        await super().async_added_to_hass()
+        # Get the source entity
+        self._source_entity = self.hass.states.get(self._source_entity_id)
+        
     @property
     def is_on(self) -> bool:
         """Return true if device is on."""
-        return self.atv is not None
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the device on."""
-        await self.manager.connect()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the device off."""
-        await self.manager.disconnect()
+        if self._source_entity:
+            state = self.hass.states.get(self._source_entity_id)
+            return state is not None and state.state != "unavailable"
+        return self._available
 
     async def async_send_command(self, command: Iterable[str], **kwargs: Any) -> None:
         """Send a command to one device."""
         num_repeats = kwargs.get(ATTR_NUM_REPEATS, 1)
         delay = kwargs.get(ATTR_DELAY_SECS, DEFAULT_DELAY_SECS)
-        hold_secs = kwargs.get(ATTR_HOLD_SECS, DEFAULT_HOLD_SECS)
-
-        if not self.atv:
-            _LOGGER.error("Unable to send commands, not connected to %s", self.name)
-            return
-
+        
+        # Pass swipe commands to the original entity
         for _ in range(num_repeats):
             for single_command in command:
-                # Handle swipe commands
                 if single_command.startswith("swipe_"):
                     direction = single_command.split("_")[1]
                     if direction not in SWIPE_DIRECTIONS:
@@ -136,31 +171,37 @@ class AppleTVRemoteWithSwipe(OriginalAppleTVEntity, RemoteEntity):
                     elif direction == "down":
                         dy = delta
                     
-                    _LOGGER.info("Sending swipe %s (dx=%f, dy=%f)", direction, dx, dy)
-                    try:
-                        await self.atv.remote_control.swipe(dx, dy)
-                    except Exception as ex:
-                        _LOGGER.error("Failed to execute swipe: %s", ex)
+                    # Use the service to send the swipe command to the source entity
+                    _LOGGER.info("Sending swipe %s (dx=%f, dy=%f) via %s", 
+                                direction, dx, dy, self._source_entity_id)
                     
+                    # Create service data for the remote.send_command service
+                    service_data = {
+                        "entity_id": self._source_entity_id,
+                        "command": [single_command],
+                        "num_repeats": 1,
+                        "delay_secs": delay,
+                        "hold_secs": kwargs.get(ATTR_HOLD_SECS, DEFAULT_HOLD_SECS),
+                        ATTR_SWIPE_DELTA: delta,
+                    }
+                    
+                    # Call the service
+                    await self.hass.services.async_call(
+                        "remote", "send_command", service_data, blocking=True
+                    )
+                    
+                    # Wait for the specified delay
                     await asyncio.sleep(delay)
-                    continue
-                
-                # Handle regular commands
-                attr_value: Any = None
-                if attributes := COMMAND_TO_ATTRIBUTE.get(single_command):
-                    attr_value = self.atv
-                    for attr_name in attributes:
-                        attr_value = getattr(attr_value, attr_name, None)
-                if not attr_value:
-                    attr_value = getattr(self.atv.remote_control, single_command, None)
-                if not attr_value:
-                    raise ValueError(f"Command {single_command} not found. Exiting sequence")
-
-                _LOGGER.debug("Sending command %s", single_command)
-
-                if hold_secs >= 1:
-                    await attr_value(action=InputAction.Hold)
                 else:
-                    await attr_value()
-
-                await asyncio.sleep(delay)
+                    # Forward other commands to the original entity
+                    service_data = {
+                        "entity_id": self._source_entity_id,
+                        "command": [single_command],
+                        "num_repeats": 1,
+                        "delay_secs": delay,
+                        "hold_secs": kwargs.get(ATTR_HOLD_SECS, DEFAULT_HOLD_SECS),
+                    }
+                    
+                    await self.hass.services.async_call(
+                        "remote", "send_command", service_data, blocking=True
+                    )
