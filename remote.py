@@ -34,6 +34,11 @@ COMMAND_TO_ATTRIBUTE = {
     "volume_down": ("audio", "volume_down"),
 }
 
+# Custom swipe attributes
+ATTR_SWIPE_DIRECTION = "direction"
+ATTR_SWIPE_DELTA = "delta"
+SWIPE_DIRECTIONS = ["left", "right", "up", "down"]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -76,6 +81,36 @@ class AppleTVRemote(AppleTVEntity, RemoteEntity):
 
         for _ in range(num_repeats):
             for single_command in command:
+                # Handle swipe commands
+                if single_command.startswith("swipe_"):
+                    direction = single_command.split("_")[1]
+                    if direction not in SWIPE_DIRECTIONS:
+                        _LOGGER.error("Invalid swipe direction: %s", direction)
+                        continue
+                    
+                    delta = kwargs.get(ATTR_SWIPE_DELTA, 0.5)  # Default delta value
+                    
+                    # Map direction to the appropriate delta values
+                    dx, dy = 0, 0
+                    if direction == "left":
+                        dx = -delta
+                    elif direction == "right":
+                        dx = delta
+                    elif direction == "up":
+                        dy = -delta
+                    elif direction == "down":
+                        dy = delta
+                    
+                    _LOGGER.debug("Sending swipe %s (dx=%f, dy=%f)", direction, dx, dy)
+                    try:
+                        await self.atv.remote_control.swipe(dx, dy)
+                    except Exception as ex:
+                        _LOGGER.error("Failed to execute swipe: %s", ex)
+                    
+                    await asyncio.sleep(delay)
+                    continue
+                
+                # Handle regular commands
                 attr_value: Any = None
                 if attributes := COMMAND_TO_ATTRIBUTE.get(single_command):
                     attr_value = self.atv
