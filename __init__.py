@@ -17,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.REMOTE]
 
 # This allows YAML configuration as a fallback
-CONFIG_SCHEMA = vol.Schema({DOMAIN: cv.schema_with_slug_keys(cv.empty_dict)}, extra=vol.ALLOW_EXTRA)
+CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

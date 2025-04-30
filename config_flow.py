@@ -5,24 +5,19 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import config_validation as cv
 
 from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# This is important to make the config flow discoverable
-DOMAIN_SCHEMA = vol.Schema({vol.Required(CONF_NAME): str})
 
-@config_entries.HANDLERS.register(DOMAIN)
 class AppleTVCustomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Apple TV Custom."""
 
     VERSION = 1
-    # These attributes are necessary for config flow to work properly
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
-    async def async_step_user(self, user_input=None) -> FlowResult:
+    async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         errors = {}
         
@@ -37,9 +32,14 @@ class AppleTVCustomConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data=user_input,
             )
 
+        # Use vol directly to avoid any potential issues
+        schema = vol.Schema({
+            vol.Required(CONF_NAME): str,
+        })
+
         return self.async_show_form(
             step_id="user",
-            data_schema=DOMAIN_SCHEMA,
+            data_schema=schema,
             errors=errors,
         )
 
